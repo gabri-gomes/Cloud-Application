@@ -1,0 +1,20 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    volumes:
+      - ./frontend:/app/frontend
+      - ./uploads:/app/uploads  # ← Isto garante que as pastas criadas dentro do container apareçam aqui fora
+    ports:
+      - "5000:5000"
+    depends_on:
+      - data_base
+
+  data_base:
+    image: postgres:latest
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: my_cloud_db
+    ports:
+      - "5432:5432"
