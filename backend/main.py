@@ -4,6 +4,9 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 import os
 import shutil
+import subprocess
+import uuid
+import time
 
 app = Flask(__name__)
 CORS(app)
@@ -11,21 +14,22 @@ CORS(app)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://admin:admin@data_base:5432/my_cloud_db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
+app.config['JOB_FOLDER'] = 'jobs'
 STORAGE_LIMIT_BYTES = 100 * 1024 * 1024  # 100MB por usuário
 
 db = SQLAlchemy(app)
 
-# Modelo de usuário
+# Modelos
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
 
-# Criar tabelas
+# Criação de tabelas
 with app.app_context():
     db.create_all()
 
-# Páginas estáticas
+# Rotas estáticas
 @app.route('/')
 def index():
     return send_from_directory('.', 'index.html')
@@ -56,10 +60,9 @@ def register():
     db.session.commit()
 
     safe_username = secure_filename(username)
-    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], safe_username)
-    os.makedirs(user_folder, exist_ok=True)
+    os.makedirs(os.path.join(app.config['UPLOAD_FOLDER'], safe_username), exist_ok=True)
+    os.makedirs(os.path.join(app.config['JOB_FOLDER'], safe_username), exist_ok=True)
 
-    print(f"[DEBUG] Pasta criada para o usuário em: {os.path.abspath(user_folder)}")
     return jsonify({'message': 'Usuário registrado com sucesso!'}), 201
 
 # Login
@@ -75,7 +78,7 @@ def login():
     else:
         return jsonify({'message': 'Credenciais inválidas'}), 401
 
-# Upload
+# Upload de arquivo
 @app.route('/upload', methods=['POST'])
 def upload_file():
     username = request.form.get('username')
@@ -90,7 +93,6 @@ def upload_file():
     user_folder = os.path.join(app.config['UPLOAD_FOLDER'], safe_username)
     os.makedirs(user_folder, exist_ok=True)
 
-    # Verificar uso atual de armazenamento
     total = sum(
         os.path.getsize(os.path.join(root, f))
         for root, _, files in os.walk(user_folder)
@@ -111,8 +113,7 @@ def list_files(username):
     user_folder = os.path.join(app.config['UPLOAD_FOLDER'], safe_username)
     if not os.path.exists(user_folder):
         return jsonify({'message': 'Usuário não encontrado'}), 404
-    files = os.listdir(user_folder)
-    return jsonify(files)
+    return jsonify(os.listdir(user_folder))
 
 # Download
 @app.route('/download/<username>/<filename>')
@@ -135,25 +136,122 @@ def get_usage(username):
 
     return jsonify({'used': total, 'limit': STORAGE_LIMIT_BYTES})
 
-# ❌ Apagar todos os usuários
+# Apagar tudo
 @app.route('/delete-all-users', methods=['DELETE'])
 def delete_all_users():
-    # 1. Remover todos os usuários do banco
-    num_deleted = db.session.query(User).delete()
+    db.session.query(User).delete()
     db.session.commit()
 
-    # 2. Apagar todas as pastas de uploads
-    if os.path.exists(app.config['UPLOAD_FOLDER']):
-        for folder in os.listdir(app.config['UPLOAD_FOLDER']):
-            path = os.path.join(app.config['UPLOAD_FOLDER'], folder)
-            if os.path.isdir(path):
-                shutil.rmtree(path)
+    shutil.rmtree(app.config['UPLOAD_FOLDER'], ignore_errors=True)
+    shutil.rmtree(app.config['JOB_FOLDER'], ignore_errors=True)
 
-    return jsonify({'message': f'{num_deleted} usuários e pastas apagados com sucesso.'}), 200
+    # Recriar diretórios base
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(app.config['JOB_FOLDER'], exist_ok=True)
+
+    return jsonify({'message': 'Todos os usuários, uploads e jobs foram apagados com sucesso.'})
+
+
+# Submissão de job em container isolado
+@app.route('/submit-job', methods=['POST'])
+def submit_job():
+    username = request.form.get('username')
+    job_file = request.files.get('job')
+
+    if not username or not job_file:
+        return jsonify({'message': 'Dados insuficientes'}), 400
+
+    safe_username = secure_filename(username)
+    job_folder = os.path.join(app.config['JOB_FOLDER'], safe_username)
+    os.makedirs(job_folder, exist_ok=True)
+
+    original_filename = secure_filename(job_file.filename)
+    script_path = os.path.join(job_folder, original_filename)
+    job_file.save(script_path)
+
+    os.sync()
+    time.sleep(0.2)
+
+    if not os.path.exists(script_path):
+        return jsonify({'message': 'Erro ao guardar o script.'}), 500
+
+    name, ext = os.path.splitext(original_filename)
+    ext = ext.lower()
+
+    output = ""
+    try:
+        if ext == ".py":
+            cmd = ["python3", script_path]
+
+        elif ext == ".js":
+            cmd = ["node", script_path]
+
+        elif ext == ".c":
+            exe_path = os.path.join(job_folder, f"{name}_c.out")
+            compile_cmd = ["gcc", script_path, "-o", exe_path]
+            subprocess.run(compile_cmd, check=True)
+            cmd = [exe_path]
+
+        elif ext == ".cpp":
+            exe_path = os.path.join(job_folder, f"{name}_cpp.out")
+            compile_cmd = ["g++", script_path, "-o", exe_path]
+            subprocess.run(compile_cmd, check=True)
+            cmd = [exe_path]
+
+        elif ext == ".rs":
+            exe_path = os.path.join(job_folder, f"{name}_rs.out")
+            compile_cmd = ["rustc", script_path, "-o", exe_path]
+            subprocess.run(compile_cmd, check=True)
+            cmd = [exe_path]
+
+        elif ext == ".java":
+            compile_cmd = ["javac", script_path]
+            subprocess.run(compile_cmd, check=True)
+            cmd = ["java", "-cp", job_folder, name]  # .class file is generated in same folder
+
+        else:
+            return jsonify({'message': f'Extensão {ext} não suportada'}), 400
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        output = result.stdout + result.stderr
+
+    except subprocess.CalledProcessError as e:
+        output = f"❌ Erro de compilação ou execução:\n{e.stderr or str(e)}"
+    except subprocess.TimeoutExpired:
+        output = "❌ Tempo limite excedido durante execução do job."
+    except Exception as e:
+        output = f"❌ Erro inesperado: {str(e)}"
+
+    output_path = script_path + ".out.txt"
+    with open(output_path, 'w') as f:
+        f.write(output)
+
+    return jsonify({'message': 'Job executado com sucesso!', 'output': output})
+
+
+
+# Listar jobs
+@app.route('/jobs/<username>')
+def list_jobs(username):
+    user_job_folder = os.path.join(app.config['JOB_FOLDER'], secure_filename(username))
+    results = []
+
+    if os.path.exists(user_job_folder):
+        for fname in os.listdir(user_job_folder):
+            if fname.endswith(".out.txt"):
+                job_name = fname.replace(".py.out.txt", ".py")
+                with open(os.path.join(user_job_folder, fname)) as f:
+                    results.append({
+                        "job": job_name,
+                        "output": f.read()
+                    })
+
+    return jsonify(results)
 
 # Inicialização
 if __name__ == '__main__':
-    if not os.path.exists(app.config['UPLOAD_FOLDER']):
-        os.makedirs(app.config['UPLOAD_FOLDER'])
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(app.config['JOB_FOLDER'], exist_ok=True)
     print(f"[DEBUG] Pasta de uploads disponível em: {os.path.abspath(app.config['UPLOAD_FOLDER'])}")
+    print(f"[DEBUG] Pasta de jobs disponível em: {os.path.abspath(app.config['JOB_FOLDER'])}")
     app.run(host='0.0.0.0', port=5000)

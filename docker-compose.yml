@@ -5,6 +5,8 @@ services:
     volumes:
       - ./frontend:/app/frontend
       - ./uploads:/app/uploads  # ← Isto garante que as pastas criadas dentro do container apareçam aqui fora
+      - ./jobs:/app/jobs 
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "5000:5000"
     depends_on:
@@ -18,3 +20,4 @@ services:
       POSTGRES_DB: my_cloud_db
     ports:
       - "5432:5432"
+

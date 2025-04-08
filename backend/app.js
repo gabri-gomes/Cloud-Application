@@ -61,7 +61,7 @@ function uploadFile() {
 
   const formData = new FormData();
   formData.append("file", fileInput.files[0]);
-  formData.append("username", username);  // ⚠️ Essencial!
+  formData.append("username", username);
 
   fetch("/upload", {
     method: "POST",
@@ -124,6 +124,59 @@ function logout() {
   window.location.href = "/";
 }
 
+// Submissão de job
+function setupJobForm() {
+  const jobForm = document.getElementById("jobForm");
+  if (jobForm) {
+    jobForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const username = localStorage.getItem("loggedUser");
+      const jobInput = document.getElementById("jobInput");
+
+      if (!username || !jobInput.files.length) {
+        alert("Usuário ou job não especificado.");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("username", username);
+      formData.append("job", jobInput.files[0]);
+
+      fetch("/submit-job", {
+        method: "POST",
+        body: formData,
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          alert(data.message || "Job executado.");
+          loadJobs();
+        });
+    });
+  }
+}
+
+function loadJobs() {
+  const username = localStorage.getItem("loggedUser");
+  const jobList = document.getElementById("jobResults");
+
+  if (!jobList) return;
+
+  fetch(`/jobs/${username}`)
+    .then((res) => res.json())
+    .then((jobs) => {
+      jobList.innerHTML = "";
+      if (jobs.length === 0) {
+        jobList.innerHTML = "<li>Nenhum job executado ainda.</li>";
+      } else {
+        jobs.forEach((job) => {
+          const li = document.createElement("li");
+          li.innerHTML = `<strong>${job.job}</strong><pre>${job.output}</pre>`;
+          jobList.appendChild(li);
+        });
+      }
+    });
+}
+
 
 // Inicialização da dashboard
 document.addEventListener("DOMContentLoaded", () => {
@@ -131,12 +184,13 @@ document.addEventListener("DOMContentLoaded", () => {
   const usernameInput = document.getElementById("loggedUsername");
 
   if (usernameInput) {
-    usernameInput.value = username;
+    usernameInput.textContent = username;
   }
 
   if (username) {
     listFiles();
     updateUsage();
+    loadJobs();
   }
 
   const uploadForm = document.getElementById("uploadForm");
@@ -146,4 +200,6 @@ document.addEventListener("DOMContentLoaded", () => {
       uploadFile();
     });
   }
+
+  setupJobForm();
 });
