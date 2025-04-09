@@ -132,6 +132,7 @@ function setupJobForm() {
       e.preventDefault();
       const username = localStorage.getItem("loggedUser");
       const jobInput = document.getElementById("jobInput");
+      const inputFile = document.getElementById("inputFile"); // ← NOVO
 
       if (!username || !jobInput.files.length) {
         alert("Usuário ou job não especificado.");
@@ -141,6 +142,10 @@ function setupJobForm() {
       const formData = new FormData();
       formData.append("username", username);
       formData.append("job", jobInput.files[0]);
+
+      if (inputFile.files.length > 0) {
+        formData.append("input", inputFile.files[0]); // ← NOVO
+      }
 
       fetch("/submit-job", {
         method: "POST",
@@ -154,6 +159,7 @@ function setupJobForm() {
     });
   }
 }
+
 
 function loadJobs() {
   const username = localStorage.getItem("loggedUser");

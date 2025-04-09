@@ -1,5 +1,13 @@
+--contruir 
+
+docker-compose pull
+docker-compose up --build
 
 -- Para rodar o código
 
 docker-compose down
 docker-compose up --build
+
+-- limpar
+
+docker system prune -a --volumes

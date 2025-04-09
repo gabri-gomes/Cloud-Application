@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import uuid
 import time
+import requests
 
 app = Flask(__name__)
 CORS(app)
@@ -145,29 +146,38 @@ def delete_all_users():
     shutil.rmtree(app.config['UPLOAD_FOLDER'], ignore_errors=True)
     shutil.rmtree(app.config['JOB_FOLDER'], ignore_errors=True)
 
-    # Recriar diretórios base
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['JOB_FOLDER'], exist_ok=True)
 
     return jsonify({'message': 'Todos os usuários, uploads e jobs foram apagados com sucesso.'})
 
 
-# Submissão de job em container isolado
 @app.route('/submit-job', methods=['POST'])
 def submit_job():
     username = request.form.get('username')
     job_file = request.files.get('job')
+    input_file = request.files.get('input')  # ← NOVO
+
+    print(f"[DEBUG] Submissão de job para usuário: {username}")
+    print(f"[DEBUG] Ficheiro recebido: {job_file.filename if job_file else 'Nenhum'}")
+    print(f"[DEBUG] Ficheiro de input recebido: {input_file.filename if input_file else 'Nenhum'}")
 
     if not username or not job_file:
         return jsonify({'message': 'Dados insuficientes'}), 400
 
     safe_username = secure_filename(username)
-    job_folder = os.path.join(app.config['JOB_FOLDER'], safe_username)
-    os.makedirs(job_folder, exist_ok=True)
+    host_job_folder = os.path.join(app.config['JOB_FOLDER'], safe_username)
+    os.makedirs(host_job_folder, exist_ok=True)
 
     original_filename = secure_filename(job_file.filename)
-    script_path = os.path.join(job_folder, original_filename)
+    script_path = os.path.join(host_job_folder, original_filename)
     job_file.save(script_path)
+
+    # Se existir input.txt, guardamos também
+    input_path = None
+    if input_file:
+        input_path = os.path.join(host_job_folder, secure_filename(input_file.filename))
+        input_file.save(input_path)
 
     os.sync()
     time.sleep(0.2)
@@ -178,49 +188,44 @@ def submit_job():
     name, ext = os.path.splitext(original_filename)
     ext = ext.lower()
 
+    supported_languages = {
+        '.py': 'python',
+        '.cpp': 'cpp',
+        '.js': 'js',
+        '.rs': 'rust',
+        '.java': 'java'
+    }
+
+    if ext not in supported_languages:
+        return jsonify({'message': f'Extensão {ext} não suportada pelo executor.'}), 400
+
+    language = supported_languages[ext]
     output = ""
+
     try:
-        if ext == ".py":
-            cmd = ["python3", script_path]
+        files = {
+            'file': (original_filename, open(script_path, 'rb'))
+        }
 
-        elif ext == ".js":
-            cmd = ["node", script_path]
+        if input_path:
+            files['input'] = (os.path.basename(input_path), open(input_path, 'rb'))
 
-        elif ext == ".c":
-            exe_path = os.path.join(job_folder, f"{name}_c.out")
-            compile_cmd = ["gcc", script_path, "-o", exe_path]
-            subprocess.run(compile_cmd, check=True)
-            cmd = [exe_path]
+        response = requests.post(
+            'http://executor:8000/execute',
+            files=files,
+            data={'language': language},
+            timeout=30
+        )
 
-        elif ext == ".cpp":
-            exe_path = os.path.join(job_folder, f"{name}_cpp.out")
-            compile_cmd = ["g++", script_path, "-o", exe_path]
-            subprocess.run(compile_cmd, check=True)
-            cmd = [exe_path]
-
-        elif ext == ".rs":
-            exe_path = os.path.join(job_folder, f"{name}_rs.out")
-            compile_cmd = ["rustc", script_path, "-o", exe_path]
-            subprocess.run(compile_cmd, check=True)
-            cmd = [exe_path]
-
-        elif ext == ".java":
-            compile_cmd = ["javac", script_path]
-            subprocess.run(compile_cmd, check=True)
-            cmd = ["java", "-cp", job_folder, name]  # .class file is generated in same folder
-
+        if response.status_code == 200:
+            output = response.json().get("output", "")
         else:
-            return jsonify({'message': f'Extensão {ext} não suportada'}), 400
+            output = f"❌ Erro do executor: {response.status_code} - {response.text}"
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        output = result.stdout + result.stderr
-
-    except subprocess.CalledProcessError as e:
-        output = f"❌ Erro de compilação ou execução:\n{e.stderr or str(e)}"
-    except subprocess.TimeoutExpired:
-        output = "❌ Tempo limite excedido durante execução do job."
+    except requests.Timeout:
+        output = "❌ Tempo limite excedido durante envio ou execução no executor."
     except Exception as e:
-        output = f"❌ Erro inesperado: {str(e)}"
+        output = f"❌ Erro inesperado ao contactar executor: {str(e)}"
 
     output_path = script_path + ".out.txt"
     with open(output_path, 'w') as f:
@@ -230,7 +235,6 @@ def submit_job():
 
 
 
-# Listar jobs
 @app.route('/jobs/<username>')
 def list_jobs(username):
     user_job_folder = os.path.join(app.config['JOB_FOLDER'], secure_filename(username))
@@ -248,7 +252,6 @@ def list_jobs(username):
 
     return jsonify(results)
 
-# Inicialização
 if __name__ == '__main__':
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
     os.makedirs(app.config['JOB_FOLDER'], exist_ok=True)

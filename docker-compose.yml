@@ -3,14 +3,15 @@ services:
     build:
       context: ./backend
     volumes:
-      - ./frontend:/app/frontend
-      - ./uploads:/app/uploads  # ← Isto garante que as pastas criadas dentro do container apareçam aqui fora
-      - ./jobs:/app/jobs 
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./frontend:/app/frontend
+      - ./uploads:/app/uploads
+      - ./jobs:/app/jobs
     ports:
       - "5000:5000"
     depends_on:
       - data_base
+      - executor
 
   data_base:
     image: postgres:latest
@@ -21,3 +22,12 @@ services:
     ports:
       - "5432:5432"
 
+  executor:
+    build:
+      context: ./executor
+    ports:
+      - "8000:8000"
+
+networks:
+  default:
+    name: my_cloud_network
