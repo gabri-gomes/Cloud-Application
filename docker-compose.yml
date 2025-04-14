@@ -1,7 +1,8 @@
+version: "3.8"
+
 services:
   backend:
-    build:
-      context: ./backend
+    image: mycloud_backend
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./frontend:/app/frontend
@@ -23,10 +24,13 @@ services:
       - "5432:5432"
 
   executor:
-    build:
-      context: ./executor
+    image: mycloud_executor
     ports:
       - "8000:8000"
+    deploy:
+      replicas: 3  # ← Escalabilidade horizontal ativada
+      restart_policy:
+        condition: on-failure
 
 networks:
   default:

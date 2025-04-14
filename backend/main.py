@@ -12,7 +12,7 @@ import requests
 app = Flask(__name__)
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://admin:admin@data_base:5432/my_cloud_db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI','postgresql://admin:admin@localhost:5432/my_cloud_db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['JOB_FOLDER'] = 'jobs'

@@ -12,4 +12,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 RUN chmod +x wait-for-it.sh
 
-CMD ["./wait-for-it.sh", "data_base:5432", "--", "python", "main.py"]
+CMD ["./wait-for-it.sh", "postgres:5432", "--", "python", "main.py"]
+

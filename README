@@ -1,13 +1,39 @@
---contruir 
+# 1. Iniciar o Minikube novamente
+minikube start
 
-docker-compose pull
-docker-compose up --build
+# 2. Redirecionar docker para o Minikube
+eval $(minikube docker-env)
 
--- Para rodar o código
+# 3. (Re)Construir imagens
+docker build -t mycloud_backend ./backend
+docker build -t mycloud_executor ./executor
 
-docker-compose down
-docker-compose up --build
+# 4. Aplicar os YAMLs novamente
+kubectl apply -f k8s/
 
--- limpar
+# 5. Verificar se os pods estão prontos
+kubectl get pods
 
+# 6. Aceder ao app via NodePort (ex: http://localhost:30001)
+minikube service backend --url
+
+
+
+#1. Parar o cluster Minikube
+minikube stop
+
+#2. Apagar completamente o cluster
+minikube delete
 docker system prune -a --volumes
+
+
+#3. Redefinir o Docker para o ambiente local (opcional, mas recomendado)
+eval $(minikube docker-env -u)
+
+#🔥 4. Apagar imagens manuais (se quiser liberar espaço)
+docker rmi -f mycloud_backend mycloud_executor
+docker image prune -a
+
+#🧼 5. Limpar volumes não usados (ex: /tmp/uploads, /tmp/jobs)
+sudo rm -rf /tmp/uploads /tmp/jobs
+docker volume prune
