@@ -1,4 +1,5 @@
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
@@ -12,7 +13,7 @@ import requests
 app = Flask(__name__)
 CORS(app)
 
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('SQLALCHEMY_DATABASE_URI','postgresql://admin:admin@localhost:5432/my_cloud_db')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mycloud.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['JOB_FOLDER'] = 'jobs'
@@ -25,6 +26,8 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
+    storage_limit = db.Column(db.Integer, default=100 * 1024 * 1024)  # 100MB
+
 
 # Criação de tabelas
 with app.app_context():
@@ -47,7 +50,7 @@ def dashboard():
 @app.route('/register', methods=['POST'])
 def register():
     data = request.json
-    username = data.get('username')
+    username = secure_filename(data.get('username'))
     password = data.get('password')
 
     if not username or not password:
@@ -56,7 +59,8 @@ def register():
     if User.query.filter_by(username=username).first():
         return jsonify({'message': 'Usuário já existe.'}), 409
 
-    new_user = User(username=username, password=password)
+    hashed_password = generate_password_hash(password)
+    new_user = User(username=username, password=hashed_password)
     db.session.add(new_user)
     db.session.commit()
 
@@ -73,11 +77,12 @@ def login():
     username = data.get('username')
     password = data.get('password')
 
-    user = User.query.filter_by(username=username, password=password).first()
-    if user:
+    user = User.query.filter_by(username=username).first()
+    if user and check_password_hash(user.password, password):
         return jsonify({'message': 'Login bem-sucedido', 'redirect': '/dashboard'}), 200
     else:
         return jsonify({'message': 'Credenciais inválidas'}), 401
+
 
 # Upload de arquivo
 @app.route('/upload', methods=['POST'])
@@ -88,6 +93,10 @@ def upload_file():
 
     if 'file' not in request.files:
         return jsonify({'message': 'Nenhum arquivo encontrado'}), 400
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'message': 'Usuário não encontrado'}), 404
 
     file = request.files['file']
     safe_username = secure_filename(username)
@@ -100,10 +109,13 @@ def upload_file():
         for f in files
     )
 
-    if total + len(file.read()) > STORAGE_LIMIT_BYTES:
+    file.seek(0, os.SEEK_END)
+    file_length = file.tell()
+    file.seek(0)
+
+    if total + file_length > user.storage_limit:
         return jsonify({'message': 'Limite de armazenamento excedido'}), 403
 
-    file.seek(0)
     file.save(os.path.join(user_folder, file.filename))
     return jsonify({'message': 'Arquivo enviado com sucesso'}), 200
 
@@ -123,10 +135,13 @@ def download_file(username, filename):
     user_folder = os.path.join(app.config['UPLOAD_FOLDER'], safe_username)
     return send_from_directory(user_folder, filename, as_attachment=True)
 
-# Uso de armazenamento
 @app.route('/usage/<username>')
 def get_usage(username):
     safe_username = secure_filename(username)
+    user = User.query.filter_by(username=safe_username).first()
+    if not user:
+        return jsonify({'used': 0, 'limit': 0})
+
     user_folder = os.path.join(app.config['UPLOAD_FOLDER'], safe_username)
 
     total = sum(
@@ -135,7 +150,8 @@ def get_usage(username):
         for f in files
     ) if os.path.exists(user_folder) else 0
 
-    return jsonify({'used': total, 'limit': STORAGE_LIMIT_BYTES})
+    return jsonify({'used': total, 'limit': user.storage_limit})
+
 
 # Apagar tudo
 @app.route('/delete-all-users', methods=['DELETE'])
@@ -251,6 +267,99 @@ def list_jobs(username):
                     })
 
     return jsonify(results)
+
+# Apagar ficheiro específico
+@app.route('/delete-file', methods=['POST'])
+def delete_file():
+    data = request.json
+    username = secure_filename(data.get('username'))
+    filename = secure_filename(data.get('filename'))
+
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], username, filename)
+
+    if os.path.exists(file_path):
+        os.remove(file_path)
+        return jsonify({'message': f'Arquivo {filename} apagado.'}), 200
+    return jsonify({'message': 'Arquivo não encontrado'}), 404
+
+# Apagar todos os ficheiros do utilizador
+@app.route('/delete-all-files', methods=['POST'])
+def delete_all_files():
+    data = request.json
+    username = secure_filename(data.get('username'))
+    user_folder = os.path.join(app.config['UPLOAD_FOLDER'], username)
+
+    if os.path.exists(user_folder):
+        shutil.rmtree(user_folder)
+        os.makedirs(user_folder, exist_ok=True)
+        return jsonify({'message': 'Todos os arquivos foram apagados.'}), 200
+    return jsonify({'message': 'Diretório não encontrado.'}), 404
+
+
+@app.route("/update-username", methods=["POST"])
+def update_username():
+    data = request.json
+    old_username = secure_filename(data.get("oldUsername"))
+    new_username = secure_filename(data.get("newUsername"))
+
+    user = User.query.filter_by(username=old_username).first()
+    if not user:
+        return jsonify({"message": "Usuário não encontrado.", "success": False})
+
+    if User.query.filter_by(username=new_username).first():
+        return jsonify({"message": "Novo nome de usuário já está em uso.", "success": False})
+
+    # renomear pasta de uploads
+    old_path = os.path.join(app.config['UPLOAD_FOLDER'], old_username)
+    new_path = os.path.join(app.config['UPLOAD_FOLDER'], new_username)
+
+    if os.path.exists(old_path):
+        os.rename(old_path, new_path)
+    
+    # Renomear pasta de jobs
+    old_job = os.path.join(app.config['JOB_FOLDER'], old_username)
+    new_job = os.path.join(app.config['JOB_FOLDER'], new_username)
+    if os.path.exists(old_job):
+        os.rename(old_job, new_job)
+
+
+    user.username = new_username
+    db.session.commit()
+    return jsonify({"message": "Nome de usuário atualizado com sucesso.", "success": True})
+
+
+@app.route("/update-password", methods=["POST"])
+def update_password():
+    data = request.json
+    username = secure_filename(data.get("username"))
+    old_password = data.get("oldPassword")
+    new_password = data.get("newPassword")
+
+    user = User.query.filter_by(username=username).first()
+    if not user or not check_password_hash(user.password, old_password):
+        return jsonify({"message": "Credenciais incorretas."})
+
+    user.password = generate_password_hash(new_password)
+    db.session.commit()
+    return jsonify({"message": "Palavra-passe atualizada com sucesso.", "success": True})
+
+
+
+@app.route("/update-plan", methods=["POST"])
+def update_plan():
+    data = request.json
+    username = secure_filename(data.get("username"))
+    limit = int(data.get("limit")) * 1024 * 1024  # Convert MB to bytes
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({"message": "Usuário não encontrado."})
+
+    user.storage_limit = limit
+    db.session.commit()
+    return jsonify({"message": f"Plano atualizado para {limit // (1024*1024)}MB."})
+
+
 
 if __name__ == '__main__':
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)

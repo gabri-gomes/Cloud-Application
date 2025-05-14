@@ -75,6 +75,78 @@
   <p>Usuário logado: <strong id="loggedUsername"></strong></p>
   <button class="logout" onclick="logout()">Sair da conta</button>
 
+  <h2>⚙️ Definições da Conta</h2>
+<div id="settings">
+  <h3>Alterar Nome de Utilizador</h3>
+  <input type="text" id="newUsername" placeholder="Novo username" />
+  <button onclick="updateUsername()">Atualizar Nome</button>
+
+  <h3>Alterar Palavra-passe</h3>
+  <input type="password" id="oldPassword" placeholder="Palavra-passe atual" />
+  <input type="password" id="newPassword" placeholder="Nova palavra-passe" />
+  <button onclick="updatePassword()">Atualizar Palavra-passe</button>
+
+  <h3>Plano de Armazenamento</h3>
+  <button onclick="updatePlan(150)">✨ Plano 150MB</button>
+  <button onclick="updatePlan(300)">⚡ï¸ Plano 300MB</button>
+  <button onclick="updatePlan(500)">🚀 Plano 500MB</button>
+</div>
+
+<script>
+function updateUsername() {
+  const oldUsername = localStorage.getItem("loggedUser");
+  const newUsername = document.getElementById("newUsername").value;
+
+  fetch("/update-username", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ oldUsername, newUsername })
+  })
+    .then(res => res.json())
+    .then(data => {
+      alert(data.message);
+      if (data.success) {
+        localStorage.setItem("loggedUser", newUsername);
+        document.getElementById("loggedUsername").textContent = newUsername;
+        updateUsage();
+}
+
+    });
+}
+
+function updatePassword() {
+  const username = localStorage.getItem("loggedUser");
+  const oldPassword = document.getElementById("oldPassword").value;
+  const newPassword = document.getElementById("newPassword").value;
+
+  fetch("/update-password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, oldPassword, newPassword })
+  })
+    .then(res => res.json())
+    .then(data => {
+      alert(data.message);
+    });
+}
+
+function updatePlan(limitMB) {
+  const username = localStorage.getItem("loggedUser");
+
+  fetch("/update-plan", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, limit: limitMB })
+  })
+    .then(res => res.json())
+    .then(data => {
+      alert(data.message);
+      updateUsage();
+    });
+}
+</script>
+
+
   <h2>Armazenamento</h2>
   <div class="usage-bar-container">
     <div id="storageBar" class="usage-bar" style="width: 0%">0%</div>
@@ -90,6 +162,7 @@
 
   <h2>Arquivos enviados</h2>
   <ul id="fileList"></ul>
+  <button onclick="deleteAllFiles()">🗑️ Apagar todos os ficheiros</button>
 
   <h2>Submeter Job (Python, JS, C++, Rust, etc.)</h2>
   <form id="jobForm">

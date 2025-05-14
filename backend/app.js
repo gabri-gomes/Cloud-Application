@@ -93,12 +93,51 @@ function listFiles() {
       } else {
         files.forEach(file => {
           const li = document.createElement("li");
-          li.innerHTML = `<a href="/download/${username}/${file}" target="_blank">${file}</a>`;
+          li.innerHTML = `
+          <a href="/download/${username}/${file}" target="_blank">${file}</a>
+          <button onclick="deleteFile('${file}')">❌ Apagar</button>
+          `;
+
           list.appendChild(li);
         });
       }
     });
 }
+
+function deleteFile(filename) {
+  const username = localStorage.getItem("loggedUser");
+
+  fetch("/delete-file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, filename }),
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      alert(data.message);
+      listFiles();
+      updateUsage();
+    });
+}
+
+function deleteAllFiles() {
+  const username = localStorage.getItem("loggedUser");
+
+  if (!confirm("Tens a certeza que queres apagar TODOS os ficheiros?")) return;
+
+  fetch("/delete-all-files", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username }),
+  })
+    .then((res) => res.json())
+    .then((data) => {
+      alert(data.message);
+      listFiles();
+      updateUsage();
+    });
+}
+
 
 // Atualizar barra de uso de armazenamento
 function updateUsage() {
