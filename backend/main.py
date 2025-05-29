@@ -3,17 +3,26 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
+from dask.distributed import Client, LocalCluster
+from tasks import execute_script
 import os
 import shutil
 import subprocess
 import uuid
 import time
 import requests
+import zipfile
+import tempfile
+from flask import request, jsonify
+from werkzeug.utils import secure_filename
+
+
 
 app = Flask(__name__)
 CORS(app)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mycloud.db'
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['JOB_FOLDER'] = 'jobs'
@@ -170,86 +179,81 @@ def delete_all_users():
 
 @app.route('/submit-job', methods=['POST'])
 def submit_job():
-    username = request.form.get('username')
-    job_file = request.files.get('job')
-    input_file = request.files.get('input')  # ← NOVO
-
-    print(f"[DEBUG] Submissão de job para usuário: {username}")
-    print(f"[DEBUG] Ficheiro recebido: {job_file.filename if job_file else 'Nenhum'}")
-    print(f"[DEBUG] Ficheiro de input recebido: {input_file.filename if input_file else 'Nenhum'}")
+    username    = request.form.get('username')
+    job_file    = request.files.get('job')
+    input_file  = request.files.get('input')
 
     if not username or not job_file:
         return jsonify({'message': 'Dados insuficientes'}), 400
 
-    safe_username = secure_filename(username)
+    safe_username   = secure_filename(username)
     host_job_folder = os.path.join(app.config['JOB_FOLDER'], safe_username)
     os.makedirs(host_job_folder, exist_ok=True)
 
     original_filename = secure_filename(job_file.filename)
-    script_path = os.path.join(host_job_folder, original_filename)
+    script_path       = os.path.join(host_job_folder, original_filename)
     job_file.save(script_path)
 
-    # Se existir input.txt, guardamos também
     input_path = None
     if input_file:
         input_path = os.path.join(host_job_folder, secure_filename(input_file.filename))
         input_file.save(input_path)
 
-    os.sync()
-    time.sleep(0.2)
-
-    if not os.path.exists(script_path):
-        return jsonify({'message': 'Erro ao guardar o script.'}), 500
-
-    name, ext = os.path.splitext(original_filename)
+    # valida extensão
+    _, ext = os.path.splitext(original_filename)
     ext = ext.lower()
-
-    supported_languages = {
-        '.py': 'python',
-        '.cpp': 'cpp',
-        '.js': 'js',
-        '.rs': 'rust',
-        '.java': 'java'
-    }
-
+    supported_languages = {'.py':'python', '.cpp':'cpp', '.js':'js', '.rs':'rust', '.java':'java'}
     if ext not in supported_languages:
-        return jsonify({'message': f'Extensão {ext} não suportada pelo executor.'}), 400
-
+        return jsonify({'message': f'Extensão {ext} não suportada.'}), 400
     language = supported_languages[ext]
-    output = ""
 
-    try:
-        files = {
-            'file': (original_filename, open(script_path, 'rb'))
-        }
+    # gera ID e enfileira no Celery
+    job_id = str(uuid.uuid4())
+    execute_script.delay(
+        job_id=job_id,
+        script_path=script_path,
+        input_path=input_path,
+        language=language
+    )
 
-        if input_path:
-            files['input'] = (os.path.basename(input_path), open(input_path, 'rb'))
+    return jsonify({
+        'message': 'Job enfileirado com sucesso!',
+        'job_id': job_id,
+        'status': 'queued'
+    }), 202
 
-        response = requests.post(
-            'http://executor:8000/execute',
-            files=files,
-            data={'language': language},
-            timeout=30
-        )
+@app.route('/job-result', methods=['GET'])
+def job_result():
+    """
+    Endpoint para o cliente consultar o output de um job enfileirado.
+    Parâmetros:
+      - username (query param)
+      - job_id   (query param)
+    Retorna:
+      - 200 + {'job_id', 'output'} quando o .out.txt existir
+      - 202 + {'status':'pending'} enquanto não existir
+      - 400 em parâmetros em falta
+    """
+    username = request.args.get('username')
+    job_id   = request.args.get('job_id')
+    if not username or not job_id:
+        return jsonify({'message':'username e job_id são obrigatórios'}), 400
 
-        if response.status_code == 200:
-            output = response.json().get("output", "")
-        else:
-            output = f"❌ Erro do executor: {response.status_code} - {response.text}"
+    safe_user = secure_filename(username)
+    user_folder = os.path.join(app.config['JOB_FOLDER'], safe_user)
+    if not os.path.isdir(user_folder):
+        return jsonify({'message':'usuário não encontrado'}), 404
 
-    except requests.Timeout:
-        output = "❌ Tempo limite excedido durante envio ou execução no executor."
-    except Exception as e:
-        output = f"❌ Erro inesperado ao contactar executor: {str(e)}"
+    # Procura qualquer ficheiro <job_id>*.out.txt
+    for fname in os.listdir(user_folder):
+        if fname.startswith(job_id) and fname.endswith('.out.txt'):
+            path = os.path.join(user_folder, fname)
+            with open(path, 'r') as f:
+                output = f.read()
+            return jsonify({'job_id': job_id, 'output': output}), 200
 
-    output_path = script_path + ".out.txt"
-    with open(output_path, 'w') as f:
-        f.write(output)
-
-    return jsonify({'message': 'Job executado com sucesso!', 'output': output})
-
-
+    # Se chegar aqui, o worker ainda não gravou o .out.txt
+    return jsonify({'status':'pending'}), 202
 
 @app.route('/jobs/<username>')
 def list_jobs(username):
@@ -358,6 +362,42 @@ def update_plan():
     user.storage_limit = limit
     db.session.commit()
     return jsonify({"message": f"Plano atualizado para {limit // (1024*1024)}MB."})
+
+@app.route('/submit-dask-job', methods=['POST'])
+def submit_dask_job():
+    zip_file = request.files.get('zip')
+    main_file = request.form.get('mainFile')
+    username = secure_filename(request.form.get('username'))
+
+    if not zip_file or not main_file or not username:
+        return jsonify({"message": "Preencha todos os campos."}), 400
+    try:
+        # Descompactar o zip para uma pasta temporária
+        with tempfile.TemporaryDirectory() as tmpdir:
+            zip_path = os.path.join(tmpdir, zip_file.filename)
+            zip_file.save(zip_path)
+
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(tmpdir)
+
+            # Criar cluster local do Dask
+            cluster = LocalCluster(n_workers=2, threads_per_worker=2)
+            client = Client(cluster)
+
+            # Caminho para o ficheiro principal
+            script_path = os.path.join(tmpdir, main_file)
+            if not os.path.exists(script_path):
+                return jsonify({"message": "Ficheiro principal não encontrado."}), 400
+
+            # Executar o ficheiro principal
+            result = subprocess.run(['python3', script_path], capture_output=True, text=True, cwd=tmpdir)
+
+            return jsonify({
+                "message": result.stdout or result.stderr or "Código executado com Dask."
+            })
+
+    except Exception as e:
+        return jsonify({"message": f"Erro ao executar com Dask: {str(e)}"}), 500
 
 
 

@@ -177,6 +177,21 @@ function updatePlan(limitMB) {
     <button type="submit">Executar Job</button>
   </form>
 
+  <h2>Executar Código com Dask</h2>
+<form id="daskJobForm">
+  <label for="daskZip">Ficheiro .zip com código:</label>
+  <input type="file" id="daskZip" accept=".zip" required><br><br>
+
+  <label for="daskMainFile">Nome do ficheiro principal (ex: main.py):</label>
+  <input type="text" id="daskMainFile" required><br><br>
+
+  <button type="submit">Executar com Dask</button>
+</form>
+
+<div id="daskJobOutput"></div>
+<hr>
+    
+
   <h2>Resultados dos Jobs</h2>
   <ul id="jobResults"></ul>
 

@@ -1,6 +1,13 @@
 version: "3.8"
 
 services:
+  redis:
+    image: redis:6
+    ports:
+      - "6379:6379"
+    networks:
+      - my_cloud_network
+
   backend:
     image: mycloud_backend
     volumes:
@@ -13,6 +20,18 @@ services:
     depends_on:
       - data_base
       - executor
+      - redis
+    networks:
+      - my_cloud_network
+
+  worker:
+    image: mycloud_worker    # você vai criar essa imagem a partir de ./worker
+    command: celery -A tasks worker --loglevel=info
+    depends_on:
+      - redis
+      - backend
+    networks:
+      - my_cloud_network
 
   data_base:
     image: postgres:latest
@@ -22,16 +41,20 @@ services:
       POSTGRES_DB: my_cloud_db
     ports:
       - "5432:5432"
+    networks:
+      - my_cloud_network
 
   executor:
     image: mycloud_executor
     ports:
       - "8000:8000"
     deploy:
-      replicas: 3  # ← Escalabilidade horizontal ativada
+      replicas: 3  # ← Elasticidade (ainda manual)
       restart_policy:
         condition: on-failure
+    networks:
+      - my_cloud_network
 
 networks:
-  default:
+  my_cloud_network:
     name: my_cloud_network

@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: celery-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: celery-worker
+  template:
+    metadata:
+      labels:
+        app: celery-worker
+    spec:
+      containers:
+      - name: worker
+        image: mycloud_worker
+        imagePullPolicy: IfNotPresent
+        command: ["celery", "-A", "tasks", "worker", "--loglevel=info"]
+        env:
+        - name: CELERY_BROKER_URL
+          value: "redis://redis:6379/0"
+        - name: EXECUTOR_URL
+          value: "http://executor:8000/execute"
+        volumeMounts:
+        - name: jobs
+          mountPath: /app/jobs
+        - name: uploads
+          mountPath: /app/uploads
+      volumes:
+      - name: jobs
+        hostPath:
+          path: /tmp/jobs
+          type: DirectoryOrCreate
+      - name: uploads
+        hostPath:
+          path: /tmp/uploads
+          type: DirectoryOrCreate

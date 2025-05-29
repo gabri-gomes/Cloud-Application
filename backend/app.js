@@ -248,3 +248,34 @@ document.addEventListener("DOMContentLoaded", () => {
 
   setupJobForm();
 });
+
+document.getElementById("daskJobForm").addEventListener("submit", async function (e) {
+  e.preventDefault();
+
+  const zipFile = document.getElementById("daskZip").files[0];
+  const mainFile = document.getElementById("daskMainFile").value;
+  const username = localStorage.getItem("loggedUser");
+
+  if (!zipFile || !mainFile || !username) {
+    alert("Preencha todos os campos.");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("zip", zipFile);
+  formData.append("mainFile", mainFile);
+  formData.append("username", username);
+
+  try {
+    const res = await fetch("/submit-dask-job", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = await res.json();
+    document.getElementById("daskJobOutput").innerText = result.message;
+  } catch (err) {
+    console.error("Erro:", err);
+    document.getElementById("daskJobOutput").innerText = "Erro inesperado.";
+  }
+});
