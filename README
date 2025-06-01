@@ -37,3 +37,38 @@ docker image prune -a
 #🧼 5. Limpar volumes não usados (ex: /tmp/uploads, /tmp/jobs)
 sudo rm -rf /tmp/uploads /tmp/jobs
 docker volume prune
+
+
+
+#new way 
+
+
+minikube start
+
+minikube addons enable metrics-server
+
+eval $(minikube docker-env)
+
+docker build -t mycloud_backend  ./backend
+docker build -t mycloud_executor ./executor
+docker build -t mycloud_worker   ./backend   # ou ./worker, conforme config
+
+kubectl apply -f k8s/
+
+kubectl get pods -o wide
+
+kubectl port-forward svc/backend 5000:5000
+
+#Abrir no browser 
+http://localhost:5000
+
+#Teste o autoscaling
+
+for i in $(seq 1 20); do
+  curl -s -F "username=alice" -F "job=@scripts/exemplo.py" \
+       http://localhost:5000/submit-job &
+done
+
+#observe o HPA escalar
+
+watch kubectl get hpa,pods

@@ -3,13 +3,13 @@ kind: Service
 metadata:
   name: backend
 spec:
+  type: NodePort
   selector:
     app: backend
   ports:
     - port: 5000
       targetPort: 5000
-      nodePort: 30001  # Acesso externo (NodePort para minikube)
-  type: NodePort
+      nodePort: 30001   # Acesso externo (NodePort para Minikube)
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -25,22 +25,25 @@ spec:
       labels:
         app: backend
     spec:
+      serviceAccountName: backend-sa
       containers:
         - name: backend
           image: mycloud_backend:latest
           imagePullPolicy: Never
           ports:
             - containerPort: 5000
-          volumeMounts:
-            - name: uploads
-              mountPath: /app/uploads
-            - name: jobs
-              mountPath: /app/jobs
           env:
             - name: FLASK_ENV
               value: production
             - name: SQLALCHEMY_DATABASE_URI
               value: postgresql://admin:admin@postgres:5432/my_cloud_db
+            - name: PG_ADMIN_URL
+              value: postgresql://admin:admin@postgres:5432/postgres
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+            - name: jobs
+              mountPath: /app/jobs   # monta /tmp/jobs do host em /app/jobs do container
       volumes:
         - name: uploads
           hostPath:

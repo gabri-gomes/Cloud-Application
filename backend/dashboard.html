@@ -70,12 +70,12 @@
   </style>
 </head>
 <body>
-  <h1>📁 Dashboard - MyCloud</h1>
+  <h1> Dashboard - MyCloud</h1>
 
   <p>Usuário logado: <strong id="loggedUsername"></strong></p>
   <button class="logout" onclick="logout()">Sair da conta</button>
 
-  <h2>⚙️ Definições da Conta</h2>
+  <h2> Definições da Conta</h2>
 <div id="settings">
   <h3>Alterar Nome de Utilizador</h3>
   <input type="text" id="newUsername" placeholder="Novo username" />
@@ -87,9 +87,9 @@
   <button onclick="updatePassword()">Atualizar Palavra-passe</button>
 
   <h3>Plano de Armazenamento</h3>
-  <button onclick="updatePlan(150)">✨ Plano 150MB</button>
-  <button onclick="updatePlan(300)">⚡ï¸ Plano 300MB</button>
-  <button onclick="updatePlan(500)">🚀 Plano 500MB</button>
+  <button onclick="updatePlan(150)"> Plano 150MB</button>
+  <button onclick="updatePlan(300)"> Plano 300MB</button>
+  <button onclick="updatePlan(500)">Plano 500MB</button>
 </div>
 
 <script>
@@ -164,7 +164,7 @@ function updatePlan(limitMB) {
   <ul id="fileList"></ul>
   <button onclick="deleteAllFiles()">🗑️ Apagar todos os ficheiros</button>
 
-  <h2>Submeter Job (Python, JS, C++, Rust, etc.)</h2>
+  <h2>Container Service (Python, JS, C++, Rust)</h2>
   <form id="jobForm">
     <label for="jobInput"><strong>Ficheiro do job:</strong></label><br />
     <input type="file" id="jobInput" accept=".py,.js,.c,.cpp,.rs,.java" required />
@@ -177,20 +177,187 @@ function updatePlan(limitMB) {
     <button type="submit">Executar Job</button>
   </form>
 
-  <h2>Executar Código com Dask</h2>
-<form id="daskJobForm">
-  <label for="daskZip">Ficheiro .zip com código:</label>
-  <input type="file" id="daskZip" accept=".zip" required><br><br>
+<hr>
 
-  <label for="daskMainFile">Nome do ficheiro principal (ex: main.py):</label>
-  <input type="text" id="daskMainFile" required><br><br>
+<h2>Gerenciar Bases de Dados</h2>
 
-  <button type="submit">Executar com Dask</button>
+<form id="createDbForm" style="margin-bottom:20px;">
+  <input
+    type="text"
+    id="newDbName"
+    placeholder="Digite o nome da nova base"
+    style="padding:6px; width:200px;"
+    required
+  />
+  <button type="submit" style="padding:6px 12px; margin-left:8px;">Criar Base</button>
 </form>
 
-<div id="daskJobOutput"></div>
+<h3>Minhas Bases</h3>
+<ul id="dbList" style="list-style: disc inside; padding-left:0;"></ul>
+<div id="listErrorDb" style="color:#d9534f; margin-top:8px; display:none;"></div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', fetchDatabases);
+
+  async function fetchDatabases() {
+    const listError = document.getElementById('listErrorDb');
+    listError.style.display = 'none';
+
+    try {
+      const resp = await fetch('/databases', {
+        method: 'GET',
+        credentials: 'same-origin'
+      });
+      if (!resp.ok) throw new Error('Falha ao obter lista de bases.');
+      const data = await resp.json();
+
+      // 1) Preenche o <ul> de bases existentes
+      const ul = document.getElementById('dbList');
+      ul.innerHTML = '';
+      data.databases.forEach(name => {
+        const li = document.createElement('li');
+        li.textContent = name;
+        ul.appendChild(li);
+      });
+
+      // 2) Preenche também o <select> do SQL Console (se existir)
+      const sel = document.getElementById('dbSelect');
+      if (sel) {
+        sel.innerHTML = '<option value="">-- escolha a base --</option>';
+        data.databases.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          sel.appendChild(opt);
+        });
+      }
+
+    } catch (err) {
+      listError.textContent = err.message;
+      listError.style.display = 'block';
+    }
+  }
+
+  document.getElementById('createDbForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const listError = document.getElementById('listErrorDb');
+    listError.style.display = 'none';
+
+    const inputName = document.getElementById('newDbName');
+    const nome = inputName.value.trim();
+    if (!nome) {
+      listError.textContent = 'Digite um nome válido.';
+      listError.style.display = 'block';
+      return;
+    }
+
+    try {
+      const resp = await fetch('/databases', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dbname: nome })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        listError.textContent = data.error || 'Falha ao criar base.';
+        listError.style.display = 'block';
+      } else {
+        inputName.value = '';
+        fetchDatabases();
+      }
+    } catch (err) {
+      listError.textContent = 'Erro na requisição: ' + err.message;
+      listError.style.display = 'block';
+    }
+  });
+</script>
+
 <hr>
-    
+<h2>Console SQL</h2>
+<p>Escolha a base, digite um comando SQL (ex.: <code>CREATE TABLE...</code> ou <code>SELECT * FROM ...</code>) e clique em “Executar SQL”.</p>
+
+<label for="dbSelect"><strong>Base:</strong></label>
+<select id="dbSelect" style="padding:6px; margin-bottom:10px;">
+  <option value="">-- carregando... --</option>
+</select>
+
+<br>
+<textarea id="sqlInput" rows="6" style="width:100%; padding:8px; font-family: monospace;"
+          placeholder="Escreva seu comando SQL aqui..."></textarea>
+<br>
+<button id="execSqlBtn" style="margin-top:8px; padding:7px 12px; background-color:#28a745; color:#fff; border:none; border-radius:4px; cursor:pointer;">
+  Executar SQL
+</button>
+<div id="sqlError" style="color:#d9534f; margin-top:8px; display:none;"></div>
+<div id="sqlResult" style="margin-top:12px; white-space: pre-wrap; font-family: monospace;"></div>
+
+<script>
+  // Ao clicar em “Executar SQL”, dispara POST /db-query
+  document.getElementById('execSqlBtn').addEventListener('click', async () => {
+    const selectElem = document.getElementById('dbSelect');
+    const dbname = selectElem.value;
+    const sql = document.getElementById('sqlInput').value.trim();
+    const errDiv = document.getElementById('sqlError');
+    const resDiv = document.getElementById('sqlResult');
+
+    errDiv.style.display = 'none';
+    resDiv.textContent = "";
+
+    if (!dbname) {
+      errDiv.textContent = 'Selecione uma base válida.';
+      errDiv.style.display = 'block';
+      return;
+    }
+    if (!sql) {
+      errDiv.textContent = 'Digite um comando SQL.';
+      errDiv.style.display = 'block';
+      return;
+    }
+
+    try {
+      const resp = await fetch('/db-query', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dbname, sql })
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        errDiv.textContent = data.error || 'Erro desconhecido ao executar SQL.';
+        errDiv.style.display = 'block';
+      } else {
+        // Se veio 'rows', formatamos como tabela simples
+        if (data.rows) {
+          if (data.rows.length === 0) {
+            resDiv.textContent = '< nenhuma linha retornada >';
+          } else {
+            // Monta header (colunas) e corpo (valores)
+            const cols = Object.keys(data.rows[0]);
+            let txt = cols.join('\t') + '\n';
+            data.rows.forEach(row => {
+              txt += cols.map(c => row[c]).join('\t') + '\n';
+            });
+            resDiv.textContent = txt;
+          }
+        } else {
+          // Comando DDL/DML: mostramos mensagem e rowcount (se existir)
+          let msg = data.message || 'Comando executado.';
+          if (data.rowcount != null) msg += `  Linhas afetadas: ${data.rowcount}`;
+          resDiv.textContent = msg;
+        }
+      }
+    } catch (err) {
+      errDiv.textContent = 'Falha na requisição: ' + err.message;
+      errDiv.style.display = 'block';
+    }
+  });
+</script>
+
+<hr>
+
 
   <h2>Resultados dos Jobs</h2>
   <ul id="jobResults"></ul>

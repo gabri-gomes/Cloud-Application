@@ -5,6 +5,7 @@ function login() {
 
   fetch("/login", {
     method: "POST",
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ username, password })
   })
@@ -225,19 +226,21 @@ function loadJobs() {
 
 // Inicialização da dashboard
 document.addEventListener("DOMContentLoaded", () => {
+  // Mostra o nome do utilizador logado
   const username = localStorage.getItem("loggedUser");
   const usernameInput = document.getElementById("loggedUsername");
-
   if (usernameInput) {
     usernameInput.textContent = username;
   }
 
+  // Se já estiver logado, carrega ficheiros, uso e jobs
   if (username) {
     listFiles();
     updateUsage();
     loadJobs();
   }
 
+  // Upload de ficheiro
   const uploadForm = document.getElementById("uploadForm");
   if (uploadForm) {
     uploadForm.addEventListener("submit", (e) => {
@@ -246,36 +249,69 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Submissão de job de script
   setupJobForm();
-});
 
-document.getElementById("daskJobForm").addEventListener("submit", async function (e) {
-  e.preventDefault();
+  // Submissão de job Dask
+  const daskForm = document.getElementById("daskJobForm");
+  if (daskForm) {
+    daskForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
 
-  const zipFile = document.getElementById("daskZip").files[0];
-  const mainFile = document.getElementById("daskMainFile").value;
-  const username = localStorage.getItem("loggedUser");
+      const zipFile  = document.getElementById("daskZip").files[0];
+      const mainFile = document.getElementById("daskMainFile").value;
+      const user     = localStorage.getItem("loggedUser");
 
-  if (!zipFile || !mainFile || !username) {
-    alert("Preencha todos os campos.");
-    return;
-  }
+      if (!zipFile || !mainFile || !user) {
+        alert("Preencha todos os campos.");
+        return;
+      }
 
-  const formData = new FormData();
-  formData.append("zip", zipFile);
-  formData.append("mainFile", mainFile);
-  formData.append("username", username);
+      const formData = new FormData();
+      formData.append("zip", zipFile);
+      formData.append("mainFile", mainFile);
+      formData.append("username", user);
 
-  try {
-    const res = await fetch("/submit-dask-job", {
-      method: "POST",
-      body: formData,
+      try {
+        const res    = await fetch("/submit-dask-job", { method: "POST", body: formData });
+        const result = await res.json();
+        document.getElementById("daskJobOutput").innerText = result.message;
+      } catch (err) {
+        console.error("Erro:", err);
+        document.getElementById("daskJobOutput").innerText = "Erro inesperado.";
+      }
     });
+  }
 
-    const result = await res.json();
-    document.getElementById("daskJobOutput").innerText = result.message;
-  } catch (err) {
-    console.error("Erro:", err);
-    document.getElementById("daskJobOutput").innerText = "Erro inesperado.";
+  // Submissão de container
+  const containerForm = document.getElementById("containerForm");
+  if (containerForm) {
+    containerForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const img = document.getElementById("ctrImage").value;
+      const cmd = document.getElementById("ctrCmd").value;
+
+      const res = await fetch("/run-container", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ image: img, command: cmd })
+      });
+      const { job_name } = await res.json();
+      document.getElementById("ctrLogs").textContent = `Job ${job_name} enfileirado…`;
+
+      // Polling para mostrar logs assim que estiverem disponíveis
+      (async function poll() {
+        const r2 = await fetch(`/job-container-logs?job_name=${job_name}`);
+        if (r2.status === 200) {
+          const { logs } = await r2.json();
+          document.getElementById("ctrLogs").textContent = logs;
+        } else {
+          setTimeout(poll, 1000);
+        }
+      })();
+    });
   }
 });
+
+

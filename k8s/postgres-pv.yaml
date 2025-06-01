@@ -1,11 +1,16 @@
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: postgres-pv
+  name: pv-postgres
+  labels:
+    type: local
 spec:
+  storageClassName: manual
   capacity:
     storage: 1Gi
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: /mnt/data/postgres
+    # Neste exemplo, no Minikube, grava em /mnt/data/postgres-data.
+    # Esse caminho existe dentro da VM do Minikube.
+    path: /mnt/data/postgres-data

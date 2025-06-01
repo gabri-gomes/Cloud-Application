@@ -15,13 +15,23 @@ import zipfile
 import tempfile
 from flask import request, jsonify
 from werkzeug.utils import secure_filename
+from kubernetes import client, config
+from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import create_engine, text
+from flask_login import current_user
+from flask import Flask, request, jsonify, render_template
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 
 
 
 app = Flask(__name__)
 CORS(app)
+app.secret_key = 'uma_chave_muito_secreta_e_aleatoria' 
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///mycloud.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv(
+    'SQLALCHEMY_DATABASE_URI',
+    'sqlite:///mycloud.db'
+)
 
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -30,12 +40,26 @@ STORAGE_LIMIT_BYTES = 100 * 1024 * 1024  # 100MB por usuário
 
 db = SQLAlchemy(app)
 
+
+PG_ADMIN_URL = os.getenv(
+    "PG_ADMIN_URL",
+    "postgresql://admin:admin@postgres:5432/postgres"
+)
+admin_engine = create_engine(PG_ADMIN_URL, isolation_level="AUTOCOMMIT")
+
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
 # Modelos
-class User(db.Model):
+class User(UserMixin, db.Model):
+    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
-    storage_limit = db.Column(db.Integer, default=100 * 1024 * 1024)  # 100MB
+    storage_limit = db.Column(db.Integer, default=100 * 1024 * 1024)
+
 
 
 # Criação de tabelas
@@ -85,12 +109,18 @@ def login():
     data = request.json
     username = data.get('username')
     password = data.get('password')
-
     user = User.query.filter_by(username=username).first()
+
     if user and check_password_hash(user.password, password):
+        login_user(user)   # ← aqui chamamos o Flask-Login para criar a sessão
         return jsonify({'message': 'Login bem-sucedido', 'redirect': '/dashboard'}), 200
     else:
         return jsonify({'message': 'Credenciais inválidas'}), 401
+    
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
 
 
 # Upload de arquivo
@@ -187,12 +217,14 @@ def submit_job():
         return jsonify({'message': 'Dados insuficientes'}), 400
 
     safe_username   = secure_filename(username)
-    host_job_folder = os.path.join(app.config['JOB_FOLDER'], safe_username)
+    # Em vez de usar caminho relativo, monte o absoluto:
+    host_job_folder = os.path.join(os.getcwd(), app.config['JOB_FOLDER'], safe_username)
     os.makedirs(host_job_folder, exist_ok=True)
 
     original_filename = secure_filename(job_file.filename)
     script_path       = os.path.join(host_job_folder, original_filename)
     job_file.save(script_path)
+
 
     input_path = None
     if input_file:
@@ -363,42 +395,120 @@ def update_plan():
     db.session.commit()
     return jsonify({"message": f"Plano atualizado para {limit // (1024*1024)}MB."})
 
-@app.route('/submit-dask-job', methods=['POST'])
-def submit_dask_job():
-    zip_file = request.files.get('zip')
-    main_file = request.form.get('mainFile')
-    username = secure_filename(request.form.get('username'))
 
-    if not zip_file or not main_file or not username:
-        return jsonify({"message": "Preencha todos os campos."}), 400
+@app.route('/databases', methods=['POST'])
+def create_database():
+    """
+    Cria nova base de dados para o usuário autenticado.
+    JSON esperado: { "dbname": "<nome>", "encoding": "<encod>" (opcional) }
+    """
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'Autenticação requerida'}), 401
+
+    data = request.get_json() or {}
+    nome_base = (data.get('dbname') or "").strip()
+    encoding  = (data.get('encoding') or "UTF8").strip()
+
+    if not nome_base:
+        return jsonify({'error': 'dbname obrigatório'}), 400
+
+    # Gera nome seguro e único
+    safe = "".join(ch for ch in nome_base if ch.isalnum() or ch == '_').lower()
+    user_id = current_user.id
+    db_real = f"user_{user_id}_{safe}"
+
+    # Verifica se já existe
+    check = text("SELECT 1 FROM pg_database WHERE datname = :d")
+    if admin_engine.execute(check, {'d': db_real}).fetchone():
+        return jsonify({'error': 'Base já existe'}), 409
+
     try:
-        # Descompactar o zip para uma pasta temporária
-        with tempfile.TemporaryDirectory() as tmpdir:
-            zip_path = os.path.join(tmpdir, zip_file.filename)
-            zip_file.save(zip_path)
+        create = text(f"CREATE DATABASE {db_real} ENCODING '{encoding}';")
+        admin_engine.execute(create)
+    except Exception as e:
+        return jsonify({'error': f"Falhou ao criar base: {str(e)}"}), 500
 
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                zip_ref.extractall(tmpdir)
+    return jsonify({'message':'Base criada','database': db_real}), 201
 
-            # Criar cluster local do Dask
-            cluster = LocalCluster(n_workers=2, threads_per_worker=2)
-            client = Client(cluster)
+@app.route('/databases', methods=['GET'])
+def list_databases():
+    """
+    Retorna JSON com lista de bases criadas pelo usuário atual.
+    """
+    if not current_user.is_authenticated:
+        return jsonify({'error': 'Autenticação requerida'}), 401
 
-            # Caminho para o ficheiro principal
-            script_path = os.path.join(tmpdir, main_file)
-            if not os.path.exists(script_path):
-                return jsonify({"message": "Ficheiro principal não encontrado."}), 400
+    prefix = f"user_{current_user.id}_"
+    qry = text("SELECT datname FROM pg_database WHERE datname LIKE :p")
+    rows = admin_engine.execute(qry, {'p': f"{prefix}%"}).fetchall()
+    nomes = [r['datname'] for r in rows]
+    return jsonify({'databases': nomes})
 
-            # Executar o ficheiro principal
-            result = subprocess.run(['python3', script_path], capture_output=True, text=True, cwd=tmpdir)
 
-            return jsonify({
-                "message": result.stdout or result.stderr or "Código executado com Dask."
-            })
+@app.route('/databases-ui', methods=['GET'])
+def databases_ui():
+    """
+    Rota que entrega a interface HTML para o usuário ver e criar databases.
+    """
+    if not current_user.is_authenticated:
+        # Se não estiver logado, redireciona (ou retorna 401, conforme sua lógica)
+        return jsonify({'error': 'Autenticação requerida'}), 401
+
+    return render_template('databases.html')
+
+@app.route('/db-query', methods=['POST'])
+@login_required
+def db_query():
+    """
+    Recebe JSON: { "dbname": "<nome_da_base>", "sql": "<comando SQL>" }
+    -> Verifica se current_user é dono de <nome_da_base>, executa lá dentro.
+    Se for SELECT, retorna array de objetos; caso contrário, retorna mensagem ou rowcount.
+    """
+    data = request.get_json() or {}
+    dbname = data.get('dbname', '').strip()
+    sql_query = data.get('sql', '').strip()
+
+    if not dbname:
+        return jsonify({'error': 'dbname é obrigatório'}), 400
+    if not sql_query:
+        return jsonify({'error': 'SQL é obrigatório'}), 400
+
+    # 1) Confere prefixo para garantir que é uma base do usuário atual
+    prefixo = f"user_{current_user.id}_"
+    if not dbname.startswith(prefixo):
+        return jsonify({'error': 'Você não tem permissão para acessar essa base'}), 403
+
+    # Use as variáveis que o Kubernetes define para o serviço postgres:
+    pg_user = os.getenv("POSTGRES_USER", "admin")
+    pg_pass = os.getenv("POSTGRES_PASSWORD", "admin")
+
+    # Estas duas garantem que só peguemos o IP e a porta, sem o "tcp://"
+    pg_host = os.getenv("POSTGRES_PORT_5432_TCP_ADDR", "postgres")
+    pg_port = os.getenv("POSTGRES_PORT_5432_TCP_PORT", "5432")
+
+    uri = f"postgresql://{pg_user}:{pg_pass}@{pg_host}:{pg_port}/{dbname}"
+    try:
+        engine = create_engine(uri)
+        with engine.connect() as conn:
+            lower = sql_query.strip().lower()
+            if lower.startswith("select") or lower.startswith("show") or lower.startswith("with"):
+                result = conn.execute(text(sql_query))
+                rows = [dict(row) for row in result.fetchall()]
+                return jsonify({'rows': rows}), 200
+            else:
+                result = conn.execute(text(sql_query))
+                conn.commit()
+                try:
+                    count = result.rowcount
+                except:
+                    count = None
+                return jsonify({
+                    'message': 'Comando executado com sucesso',
+                    'rowcount': count
+                }), 200
 
     except Exception as e:
-        return jsonify({"message": f"Erro ao executar com Dask: {str(e)}"}), 500
-
+        return jsonify({'error': str(e)}), 400
 
 
 if __name__ == '__main__':

@@ -23,6 +23,9 @@ services:
       - redis
     networks:
       - my_cloud_network
+    environment:
+    - SQLALCHEMY_DATABASE_URI=postgresql://admin:admin@data_base:5432/my_cloud_db
+    - PG_ADMIN_URL=postgresql://admin:admin@data_base:5432/postgres
 
   worker:
     image: mycloud_worker    # você vai criar essa imagem a partir de ./worker
