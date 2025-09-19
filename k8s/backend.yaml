@@ -43,7 +43,7 @@ spec:
             - name: uploads
               mountPath: /app/uploads
             - name: jobs
-              mountPath: /app/jobs   # monta /tmp/jobs do host em /app/jobs do container
+              mountPath: /app/jobs
       volumes:
         - name: uploads
           hostPath:

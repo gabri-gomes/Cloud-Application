@@ -3,7 +3,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, request, jsonify, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
-from dask.distributed import Client, LocalCluster
+#from dask.distributed import Client, LocalCluster
 from tasks import execute_script
 import os
 import shutil
@@ -59,7 +59,7 @@ class User(UserMixin, db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(120), nullable=False)
     storage_limit = db.Column(db.Integer, default=100 * 1024 * 1024)
-
+    user = db.relationship('User', backref=db.backref('containers', lazy=True))
 
 
 # Criação de tabelas

@@ -70,9 +70,9 @@
   </style>
 </head>
 <body>
-  <h1> Dashboard - MyCloud</h1>
+  <h1> Cloud_Of_Group_C </h1>
 
-  <p>Usuário logado: <strong id="loggedUsername"></strong></p>
+  <p>Usuário: <strong id="loggedUsername"></strong></p>
   <button class="logout" onclick="logout()">Sair da conta</button>
 
   <h2> Definições da Conta</h2>
@@ -86,7 +86,7 @@
   <input type="password" id="newPassword" placeholder="Nova palavra-passe" />
   <button onclick="updatePassword()">Atualizar Palavra-passe</button>
 
-  <h3>Plano de Armazenamento</h3>
+  <h3>Plano de Armazenamento 150MB = 10€ - 300MB = 15€ - 500MB = 18€ </h3>
   <button onclick="updatePlan(150)"> Plano 150MB</button>
   <button onclick="updatePlan(300)"> Plano 300MB</button>
   <button onclick="updatePlan(500)">Plano 500MB</button>
@@ -162,9 +162,9 @@ function updatePlan(limitMB) {
 
   <h2>Arquivos enviados</h2>
   <ul id="fileList"></ul>
-  <button onclick="deleteAllFiles()">🗑️ Apagar todos os ficheiros</button>
+  <button onclick="deleteAllFiles()">Apagar todos os ficheiros</button>
 
-  <h2>Container Service (Python, JS, C++, Rust)</h2>
+  <h2>Container Service (Python, JS, C++, Rust) - JOBS</h2>
   <form id="jobForm">
     <label for="jobInput"><strong>Ficheiro do job:</strong></label><br />
     <input type="file" id="jobInput" accept=".py,.js,.c,.cpp,.rs,.java" required />
@@ -275,7 +275,7 @@ function updatePlan(limitMB) {
 </script>
 
 <hr>
-<h2>Console SQL</h2>
+<h2>Consola SQL</h2>
 <p>Escolha a base, digite um comando SQL (ex.: <code>CREATE TABLE...</code> ou <code>SELECT * FROM ...</code>) e clique em “Executar SQL”.</p>
 
 <label for="dbSelect"><strong>Base:</strong></label>
