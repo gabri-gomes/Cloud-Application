@@ -16,3 +16,8 @@ redis>=4.0
 requests>=2.0
 kubernetes>=23.0.0
 Flask-Login==0.6.2
+docker>=5.0.0
+Flask
+Flask-Login
+docker
+werkzeug

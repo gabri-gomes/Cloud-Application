@@ -40,7 +40,7 @@ def execute_code():
             compile_cmd = ["g++", filename, "-o", exe_file]
             compile = subprocess.run(compile_cmd, capture_output=True, text=True)
             if compile.returncode != 0:
-                output = "❌ Erro de compilação:\n" + compile.stderr
+                output = " Erro de compilação:\n" + compile.stderr
             else:
                 with open(input_path, "rb") if input_path else subprocess.DEVNULL as f_in:
                     run = subprocess.run([exe_file], stdin=f_in if input_path else None, capture_output=True, text=True, timeout=10)
@@ -60,7 +60,7 @@ def execute_code():
             compile_cmd = ["rustc", filename, "-o", exe_file]
             compile = subprocess.run(compile_cmd, capture_output=True, text=True)
             if compile.returncode != 0:
-                output = "❌ Erro de compilação:\n" + compile.stderr
+                output = " Erro de compilação:\n" + compile.stderr
             else:
                 with open(input_path, "rb") if input_path else subprocess.DEVNULL as f_in:
                     run = subprocess.run([exe_file], stdin=f_in if input_path else None, capture_output=True, text=True, timeout=10)
@@ -71,9 +71,9 @@ def execute_code():
             return jsonify({"error": "Linguagem não suportada."}), 400
 
     except subprocess.TimeoutExpired:
-        output = "❌ Tempo limite excedido."
+        output = " Tempo limite excedido."
     except Exception as e:
-        output = f"❌ Erro inesperado: {str(e)}"
+        output = f" Erro inesperado: {str(e)}"
 
     os.remove(filename)
     if input_path:

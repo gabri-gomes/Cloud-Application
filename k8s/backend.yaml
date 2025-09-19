@@ -40,15 +40,31 @@ spec:
             - name: PG_ADMIN_URL
               value: postgresql://admin:admin@postgres:5432/postgres
           volumeMounts:
+            # monta o socket do Docker para permitir que o backend crie/rode containers
+            - name: docker-socket
+              mountPath: /var/run/docker.sock
+
+            # pasta de uploads para salvar Dockerfiles e outros arquivos do usuário
             - name: uploads
               mountPath: /app/uploads
+
+            # pasta de jobs (se for usada pelo Celery ou outras partes do backend)
             - name: jobs
-              mountPath: /app/jobs   # monta /tmp/jobs do host em /app/jobs do container
+              mountPath: /app/jobs
       volumes:
+        # volume para o socket do Docker (hostPath tipo Socket)
+        - name: docker-socket
+          hostPath:
+            path: /var/run/docker.sock
+            type: Socket
+
+        # volume para /app/uploads (hostPath tipo DirectoryOrCreate)
         - name: uploads
           hostPath:
             path: /tmp/uploads
             type: DirectoryOrCreate
+
+        # volume para /app/jobs (hostPath tipo DirectoryOrCreate)
         - name: jobs
           hostPath:
             path: /tmp/jobs

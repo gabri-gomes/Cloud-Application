@@ -9,12 +9,15 @@ services:
       - my_cloud_network
 
   backend:
-    image: mycloud_backend
+    image: mycloud_backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./frontend:/app/frontend
-      - ./uploads:/app/uploads
-      - ./jobs:/app/jobs
+      - ./backend:/app/backend       # monta o código Flask (main.py, dashboard.html, app.js) em /app/backend
+      - ./uploads:/app/uploads       # pasta onde o Flask grava uploads do utilizador
+      - ./jobs:/app/jobs      
     ports:
       - "5000:5000"
     depends_on:
@@ -24,11 +27,11 @@ services:
     networks:
       - my_cloud_network
     environment:
-    - SQLALCHEMY_DATABASE_URI=postgresql://admin:admin@data_base:5432/my_cloud_db
-    - PG_ADMIN_URL=postgresql://admin:admin@data_base:5432/postgres
+      - SQLALCHEMY_DATABASE_URI=postgresql://admin:admin@data_base:5432/my_cloud_db
+      - PG_ADMIN_URL=postgresql://admin:admin@data_base:5432/postgres
 
   worker:
-    image: mycloud_worker    # você vai criar essa imagem a partir de ./worker
+    image: mycloud_worker:latest    # deve ser criado a partir de ./worker
     command: celery -A tasks worker --loglevel=info
     depends_on:
       - redis
@@ -48,11 +51,11 @@ services:
       - my_cloud_network
 
   executor:
-    image: mycloud_executor
+    image: mycloud_executor:latest
     ports:
       - "8000:8000"
     deploy:
-      replicas: 3  # ← Elasticidade (ainda manual)
+      replicas: 3    # Elasticidade (ainda manual)
       restart_policy:
         condition: on-failure
     networks:

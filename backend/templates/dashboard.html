@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <title>MyCloud - Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      padding: 20px;
+    }
+    h1 { color: #333; }
+    .usage-bar-container {
+      background-color: #ddd;
+      border-radius: 4px;
+      width: 100%;
+      max-width: 400px;
+      height: 30px;
+      margin: 10px 0;
+      overflow: hidden;
+    }
+    .usage-bar {
+      height: 100%;
+      background-color: #4caf50;
+      color: white;
+      text-align: center;
+      line-height: 30px;
+    }
+    ul { list-style: none; padding-left: 0; }
+    li { margin: 5px 0; }
+    input[type="file"] { margin-bottom: 10px; }
+    button {
+      padding: 10px 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 10px;
+      margin-right: 10px;
+    }
+    button:hover { background-color: #0056b3; }
+    .logout {
+      background-color: #dc3545;
+    }
+    .logout:hover {
+      background-color: #a71d2a;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid #ccc;
+      text-align: left;
+    }
+    th { background-color: #ddd; }
+    .form-group { margin-bottom: 10px; }
+    label { font-weight: bold; }
+    .alert-info {
+      background-color: #d9edf7;
+      border: 1px solid #bce8f1;
+      padding: 10px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+    }
+    .alert-info ul {
+      margin: 0;
+      padding-left: 20px;
+    }
+    small { color: #666; }
+  </style>
+</head>
+<body>
+  <h1> Cloud_Of_Group_C </h1>
+
+  <!-- Exibe o nome do usuário logado aqui -->
+  <p>Usuário: <strong id="loggedUsername">{{ current_user.username }}</strong></p>
+  <button class="logout" onclick="logout()">Sair da conta</button>
+
+  <!-- === Definições da Conta === -->
+  <h2>Definições da Conta</h2>
+  <div id="settings">
+    <h3>Alterar Nome de Utilizador</h3>
+    <input type="text" id="newUsername" placeholder="Novo username" />
+    <button onclick="updateUsername()">Atualizar Nome</button>
+
+    <h3>Alterar Palavra-passe</h3>
+    <input type="password" id="oldPassword" placeholder="Palavra-passe atual" />
+    <input type="password" id="newPassword" placeholder="Nova palavra-passe" />
+    <button onclick="updatePassword()">Atualizar Palavra-passe</button>
+
+    <h3>Plano de Armazenamento 150MB = 10€ - 300MB = 15€ - 500MB = 18€</h3>
+    <button onclick="updatePlan(150)">Plano 150MB</button>
+    <button onclick="updatePlan(300)">Plano 300MB</button>
+    <button onclick="updatePlan(500)">Plano 500MB</button>
+  </div>
+
+  <script>
+    // As funções updateUsername, updatePassword e updatePlan ficam embutidas aqui
+    function updateUsername() {
+      const oldUsername = localStorage.getItem("loggedUser");
+      const newUsername = document.getElementById("newUsername").value;
+
+      fetch("/update-username", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ oldUsername, newUsername })
+      })
+        .then(res => res.json())
+        .then(data => {
+          alert(data.message);
+          if (data.success) {
+            localStorage.setItem("loggedUser", newUsername);
+            document.getElementById("loggedUsername").textContent = newUsername;
+            updateUsage();
+          }
+        });
+    }
+
+    function updatePassword() {
+      const username    = localStorage.getItem("loggedUser");
+      const oldPassword = document.getElementById("oldPassword").value;
+      const newPassword = document.getElementById("newPassword").value;
+
+      fetch("/update-password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, oldPassword, newPassword })
+      })
+        .then(res => res.json())
+        .then(data => {
+          alert(data.message);
+        });
+    }
+
+    function updatePlan(limitMB) {
+      const username = localStorage.getItem("loggedUser");
+
+      fetch("/update-plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, limit: limitMB })
+      })
+        .then(res => res.json())
+        .then(data => {
+          alert(data.message);
+          updateUsage();
+        });
+    }
+  </script>
+
+  <hr>
+
+  <!-- === Armazenamento === -->
+  <h2>Armazenamento</h2>
+  <div class="usage-bar-container">
+    <div id="storageBar" class="usage-bar" style="width: 0%">0%</div>
+  </div>
+  <p id="storageUsageText">0 MB usados</p>
+
+  <!-- === Upload de Arquivo === -->
+  <h2>Enviar arquivo</h2>
+  <form id="uploadForm">
+    <input type="file" id="fileInput" required />
+    <br />
+    <button type="submit">Enviar</button>
+  </form>
+
+  <h2>Arquivos enviados</h2>
+  <ul id="fileList"></ul>
+  <button onclick="deleteAllFiles()">Apagar todos os ficheiros</button>
+
+  <hr>
+
+  <!-- === Container Service === -->
+  <h2>Container Service</h2>
+
+  <!-- Dropdown de imagens disponíveis -->
+  <div class="alert-info">
+    <strong>Escolha um dos bundles disponíveis:</strong>
+    <ul>
+      {% for img in available_images %}
+        <li>
+          <code>{{ img.tag }}</code> — {{ img.description }}
+        </li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Formulário para criar container -->
+  <form method="POST" action="{{ url_for('create_container') }}" enctype="multipart/form-data">
+    <div class="form-group">
+      <label for="image-select"><strong>Imagem (Bundle):</strong></label><br>
+      <select id="image-select" name="image_tag" required>
+        <option value="">-- selecione uma imagem --</option>
+        {% for img in available_images %}
+          <option value="{{ img.tag }}">{{ img.tag }} — {{ img.description }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="user-file"><strong>Ficheiro a incluir no container (opcional):</strong></label><br>
+      <input type="file" id="user-file" name="user_file">
+      <small>(Por ex., script.py ou dataset.csv)</small>
+    </div>
+
+    <div class="form-group">
+      <label for="run-command"><strong>Comando a executar:</strong></label><br>
+      <input type="text" id="run-command" name="run_command"
+             placeholder="Ex: python /app/input/script.py" required>
+      <small>(Ex.: <code>python /app/input/script.py</code>)</small>
+    </div>
+
+    <button type="submit">Criar e Iniciar Container</button>
+  </form>
+
+  <!-- Listagem dos containers do usuário -->
+  <h3>Meus Containers</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Imagem</th>
+        <th>Container Name</th>
+        <th>Comando</th>
+        <th>Status</th>
+        <th>Criado em</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in containers %}
+      <tr>
+        <td>{{ c.id }}</td>
+        <td>{{ c.image_name }}</td>
+        <td>{{ c.container_name }}</td>
+        <td><code>{{ c.run_command }}</code></td>
+        <td>{{ c.status }}</td>
+        <td>{{ c.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        <td>
+          {% if c.status == 'RUNNING' %}
+            <form style="display:inline;" method="post" action="{{ url_for('stop_container', container_id=c.id) }}">
+              <button style="background:#f0ad4e; color:#fff; border:none; padding:4px 8px; border-radius:3px; cursor:pointer;">
+                Parar
+              </button>
+            </form>
+          {% else %}
+            <form style="display:inline;" method="post" action="{{ url_for('run_container_again', container_id=c.id) }}">
+              <button style="background:#5cb85c; color:#fff; border:none; padding:4px 8px; border-radius:3px; cursor:pointer;">
+                Rodar
+              </button>
+            </form>
+          {% endif %}
+          <form style="display:inline; margin-left:4px;" method="post" action="{{ url_for('delete_container', container_id=c.id) }}">
+            <button style="background:#d9534f; color:#fff; border:none; padding:4px 8px; border-radius:3px; cursor:pointer;">
+              Eliminar
+            </button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="7" style="text-align:center;">Nenhum container criado ainda.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <hr>
+
+  <!-- === Build de Imagem Docker === -->
+  <h2>Build de Imagem Docker</h2>
+  <form id="buildForm">
+    <div>
+      <label for="imgName"><strong>Nome da Imagem:</strong></label><br>
+      <input type="text" id="imgName" placeholder="ex: minhaapp" required />
+    </div>
+    <div>
+      <label for="imgTag"><strong>Tag:</strong></label><br>
+      <input type="text" id="imgTag" placeholder="ex: v1" value="latest" required />
+    </div>
+    <div>
+      <label for="dockerfileTxt"><strong>Conteúdo do Dockerfile:</strong></label><br>
+      <textarea id="dockerfileTxt" rows="8" cols="60"
+        placeholder="Exemplo:\nFROM python:3.9-slim\nWORKDIR /workspace\nCOPY . /workspace\nCMD [&quot;python&quot;,&quot;app.py&quot;]"
+        required></textarea>
+    </div>
+    <button type="submit">Buildar Imagem</button>
+  </form>
+
+  <pre id="buildLogs" style="background:#f9f9f9; padding:8px; margin-top:10px;"></pre>
+
+  <hr>
+
+  <!-- === Submissão de Jobs de Scripts === -->
+  <h2>Executar Job de Script</h2>
+  <form id="jobForm">
+    <label for="jobInput"><strong>Ficheiro do job:</strong></label><br />
+    <input type="file" id="jobInput" accept=".py,.js,.c,.cpp,.rs,.java" required />
+    <br /><br />
+
+    <label for="inputFile"><strong>Ficheiro de entrada (opcional):</strong></label><br />
+    <input type="file" id="inputFile" accept=".txt" />
+    <br />
+
+    <button type="submit">Executar Job</button>
+  </form>
+
+  <h2>Resultados dos Jobs</h2>
+  <ul id="jobResults"></ul>
+
+  <hr>
+
+  <!-- === Gerenciar Bases de Dados === -->
+  <h2>Gerenciar Bases de Dados</h2>
+
+  <form id="createDbForm" style="margin-bottom:20px;">
+    <input
+      type="text"
+      id="newDbName"
+      placeholder="Digite o nome da nova base"
+      style="padding:6px; width:200px;"
+      required
+    />
+    <button type="submit" style="padding:6px 12px; margin-left:8px;">Criar Base</button>
+  </form>
+
+  <h3>Minhas Bases</h3>
+  <ul id="dbList" style="list-style: disc inside; padding-left:0;"></ul>
+  <div id="listErrorDb" style="color:#d9534f; margin-top:8px; display:none;"></div>
+
+  <script>
+    // Ao carregar a página, já invoca fetchDatabases() abaixo para mostrar a lista
+    document.addEventListener('DOMContentLoaded', fetchDatabases);
+
+    async function fetchDatabases() {
+      const listError = document.getElementById('listErrorDb');
+      listError.style.display = 'none';
+
+      try {
+        const resp = await fetch('/databases', {
+          method: 'GET',
+          credentials: 'same-origin'
+        });
+        if (!resp.ok) throw new Error('Falha ao obter lista de bases.');
+        const data = await resp.json();
+
+        // 1) Preenche o <ul> de bases existentes
+        const ul = document.getElementById('dbList');
+        ul.innerHTML = '';
+        data.databases.forEach(name => {
+          const li = document.createElement('li');
+          li.textContent = name;
+          ul.appendChild(li);
+        });
+
+        // 2) Preenche também o <select> do SQL Console (se existir)
+        const sel = document.getElementById('dbSelect');
+        if (sel) {
+          sel.innerHTML = '<option value="">-- escolha a base --</option>';
+          data.databases.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            sel.appendChild(opt);
+          });
+        }
+      } catch (err) {
+        listError.textContent = err.message;
+        listError.style.display = 'block';
+      }
+    }
+
+    document.getElementById('createDbForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const listError = document.getElementById('listErrorDb');
+      listError.style.display = 'none';
+
+      const inputName = document.getElementById('newDbName');
+      const nome      = inputName.value.trim();
+      if (!nome) {
+        listError.textContent = 'Digite um nome válido.';
+        listError.style.display = 'block';
+        return;
+      }
+
+      try {
+        const resp = await fetch('/databases', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dbname: nome })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          listError.textContent = data.error || 'Falha ao criar base.';
+          listError.style.display = 'block';
+        } else {
+          inputName.value = '';
+          fetchDatabases();
+        }
+      } catch (err) {
+        listError.textContent = 'Erro na requisição: ' + err.message;
+        listError.style.display = 'block';
+      }
+    });
+  </script>
+
+  <hr>
+
+  <!-- === Consola SQL === -->
+  <h2>Consola SQL</h2>
+  <p>Escolha a base, digite um comando SQL (ex.: <code>CREATE TABLE...</code> ou <code>SELECT * FROM ...</code>) e clique em “Executar SQL”.</p>
+
+  <label for="dbSelect"><strong>Base:</strong></label>
+  <select id="dbSelect" style="padding:6px; margin-bottom:10px;">
+    <option value="">-- carregando... --</option>
+  </select>
+
+  <br>
+  <textarea id="sqlInput" rows="6" style="width:100%; padding:8px; font-family: monospace;"
+            placeholder="Escreva seu comando SQL aqui..."></textarea>
+  <br>
+  <button id="execSqlBtn" style="margin-top:8px; padding:7px 12px; background-color:#28a745; color:#fff; border:none; border-radius:4px; cursor:pointer;">
+    Executar SQL
+  </button>
+  <div id="sqlError" style="color:#d9534f; margin-top:8px; display:none;"></div>
+  <div id="sqlResult" style="margin-top:12px; white-space: pre-wrap; font-family: monospace;"></div>
+
+  <script>
+    // Ao clicar em “Executar SQL”, dispara POST /db-query
+    document.getElementById('execSqlBtn').addEventListener('click', async () => {
+      const selectElem = document.getElementById('dbSelect');
+      const dbname = selectElem.value;
+      const sql = document.getElementById('sqlInput').value.trim();
+      const errDiv = document.getElementById('sqlError');
+      const resDiv = document.getElementById('sqlResult');
+
+      errDiv.style.display = 'none';
+      resDiv.textContent = "";
+
+      if (!dbname) {
+        errDiv.textContent = 'Selecione uma base válida.';
+        errDiv.style.display = 'block';
+        return;
+      }
+      if (!sql) {
+        errDiv.textContent = 'Digite um comando SQL.';
+        errDiv.style.display = 'block';
+        return;
+      }
+
+      try {
+        const resp = await fetch('/db-query', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ dbname, sql })
+        });
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          errDiv.textContent = data.error || 'Erro desconhecido ao executar SQL.';
+          errDiv.style.display = 'block';
+        } else {
+          if (data.rows) {
+            if (data.rows.length === 0) {
+              resDiv.textContent = '< nenhuma linha retornada >';
+            } else {
+              const cols = Object.keys(data.rows[0]);
+              let txt = cols.join('\t') + '\n';
+              data.rows.forEach(row => {
+                txt += cols.map(c => row[c]).join('\t') + '\n';
+              });
+              resDiv.textContent = txt;
+            }
+          } else {
+            let msg = data.message || 'Comando executado.';
+            if (data.rowcount != null) msg += `  Linhas afetadas: ${data.rowcount}`;
+            resDiv.textContent = msg;
+          }
+        }
+      } catch (err) {
+        errDiv.textContent = 'Falha na requisição: ' + err.message;
+        errDiv.style.display = 'block';
+      }
+    });
+  </script>
+
+  <hr>
+
+  <script src="{{ url_for('serve_js') }}"></script>
+</body>
+</html>

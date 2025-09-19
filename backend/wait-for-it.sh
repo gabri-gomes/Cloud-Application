@@ -12,6 +12,6 @@ while ! nc -z "$host" "$port"; do
   sleep 1
 done
 
-echo "✅ $host:$port está pronto!"
+echo " $host:$port está pronto!"
 
 exec "$@"

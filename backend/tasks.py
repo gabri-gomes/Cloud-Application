@@ -21,7 +21,7 @@ def execute_script(job_id: str, script_path: str, input_path: str, language: str
     # Dados adicionais (inclui job_id caso o executor use)
     data = {'language': language, 'job_id': job_id}
     response = run_job(files=files, data=data)
-    output = response.json().get('output', '') if response.ok else f"❌ {response.status_code}: {response.text}"
+    output = response.json().get('output', '') if response.ok else f" {response.status_code}: {response.text}"
 
     # Define o path de output usando o job_id como nome
     dirpath = os.path.dirname(script_path)
